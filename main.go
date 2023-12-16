@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
+	"golang.org/x/tools/go/types/typeutil"
 )
 
 func main() {
@@ -109,13 +111,24 @@ func run() error {
 	}
 	for _, p := range packages {
 		for name, member := range p.Members {
-			if _, ok := functionSet[name]; ok {
-				if fn, ok := member.(*ssa.Function); ok {
-					if _, err := fn.WriteTo(os.Stdout); err != nil {
+			switch m := member.(type) {
+			case *ssa.Function:
+				if _, ok := functionSet[name]; ok {
+					if _, err := m.WriteTo(os.Stdout); err != nil {
 						return err
 					}
-				} else {
-					return fmt.Errorf("%s member %s is a %T, not a *ssa.Function", p, member.Name(), member)
+				}
+			case *ssa.Type:
+				mset := typeutil.IntuitiveMethodSet(m.Type(), &prog.MethodSets)
+				for _, selection := range mset {
+					tfn := selection.Obj().(*types.Func)
+					name := tfn.Name()
+					if _, ok := functionSet[name]; ok {
+						fn := prog.FuncValue(tfn)
+						if _, err := fn.WriteTo(os.Stdout); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
